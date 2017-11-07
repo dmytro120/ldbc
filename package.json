@@ -1,0 +1,11 @@
+{
+  "name": "ldbc",
+  "version": "0.0.1",
+  "description": "LabSys Database Connector",
+  "main": "ldbc.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Dmytro",
+  "license": "ISC"
+}
