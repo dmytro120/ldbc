@@ -59,6 +59,7 @@ class LDBC
 				'└────────────────────────────────────────────┘'+'\r\n'
 			);
 			
+			this.currentKey = Object.keys(this.config.connectionStrings)[0];
 			this.openConnection();
 		} else {
 			this.dialog.err('Cannot start LDBC.\r\n\r\nDB configuration file not found:\r\n' + this.pathToConfig.replace(/\//g, "\\"), 'LDBC Error', e => {
@@ -67,24 +68,43 @@ class LDBC
 		}
 	}
 	
-	openConnection(key)
+	openConnection(key, thenFn)
 	{
-		if (!key) key = Object.keys(this.config.connectionStrings)[0];
-		console.log('\x1b[0m', 'Connecting to ' + key);
+		if (!key) key = this.currentKey;
+		console.log('\x1b[0m', 'Connecting to ' + key + '...');
 		
 		this.pool.open(this.config.connectionStrings[key], (err, client) => {
+			if (err) {
+				if (err.state == '01000' || err.state == '08S01') {
+					this.openConnection(key, thenFn);
+				} else {
+					console.log('\x1b[91m', err.message, '\x1b[0m');
+					this.client = null;
+				}
+				return;
+			}
+			console.log('\x1b[92m', 'OK', '\x1b[0m');
 			this.client = client;
 			if (!this.serverOn) this.startServer();
+			if (thenFn) thenFn.call(this);
 		});
 	}
 	
-	switchConnection(no)
+	switchConnection(no, thenFn)
 	{
-		var targetKey = Object.keys(this.config.connectionStrings)[no-1];
+		var targetKey = no ? Object.keys(this.config.connectionStrings)[no-1] : this.currentKey;
 		
-		if (targetKey) this.client.close(e => {
-			this.openConnection(targetKey);
-		});
+		if (targetKey) {
+			if (this.client) {
+				this.client.close(e => {
+					this.currentKey = targetKey;
+					this.openConnection(null, thenFn);
+				});
+			} else {
+				this.currentKey = targetKey;
+				this.openConnection(null, thenFn);
+			}
+		}
 	}
 	
 	startServer()
@@ -119,14 +139,26 @@ class LDBC
 			return;
 		}
 		
+		if (!this.client) {
+			response.writeHead(400, {"Content-Type": "text/plain"});
+			response.write('LDBC is not connected to a database.');
+			response.end();
+			return;
+		}
+		
 		try {
 			var rows = this.client.querySync(qry);
 		}
-		catch(err) {
-			response.writeHead(400, {"Content-Type": "text/plain"});
-			//console.error(err);
-			response.write(err.message);
-			response.end();
+		catch (err) {
+			if (err.state && (err.state == '01000' || err.state == '08S01')) {
+				this.switchConnection(null, e => {
+					this.handleRequest(request, response);
+				});
+			} else {
+				response.writeHead(400, {"Content-Type": "text/plain"});
+				response.write(err.message);
+				response.end();
+			}
 			return;
 		}
 		response.writeHead(200, {"Content-Type": "application/json"});
