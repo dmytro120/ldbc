@@ -17,7 +17,6 @@ class LDBC
 		this.fs = require('fs');
 		this.dialog = require('dialog');
 		this.http = require('http');
-		this.httpPort = 7000;
 		
 		var pool = require('odbc-pool');
 		this.pool = new pool({min : 1, max : 10, log : false});
@@ -43,6 +42,10 @@ class LDBC
 				});
 				return;
 			}
+			this.connectionStrings = this.config.connectionStrings;
+			
+			if (!this.config.host) this.config.host = 'localhost';
+			if (!this.config.port) this.config.port = 7000;
 			
 			console.log(
 				'┌────────────────────────────────────────────┐'+'\r\n'+
@@ -51,7 +54,7 @@ class LDBC
 				'├────────────────────────────────────────────┤'
 			);
 			var c = 1;
-			for (var name in this.config.connectionStrings) {
+			for (var name in this.connectionStrings) {
 				console.log('│ ' + (c + ': ' + name + ' '.repeat(42)).slice(0,42) + ' │');
 				c++;
 			}
@@ -59,7 +62,7 @@ class LDBC
 				'└────────────────────────────────────────────┘'+'\r\n'
 			);
 			
-			this.currentKey = Object.keys(this.config.connectionStrings)[0];
+			this.currentKey = Object.keys(this.connectionStrings)[0];
 			this.openConnection();
 		} else {
 			this.dialog.err('Cannot start LDBC.\r\n\r\nDB configuration file not found:\r\n' + this.pathToConfig.replace(/\//g, "\\"), 'LDBC Error', e => {
@@ -70,29 +73,37 @@ class LDBC
 	
 	openConnection(key, thenFn)
 	{
+		if (!this.serverOn) this.startServer();
 		if (!key) key = this.currentKey;
 		console.log('\x1b[0m', 'Connecting to ' + key + '...');
 		
-		this.pool.open(this.config.connectionStrings[key], (err, client) => {
+		this.pool.open(this.connectionStrings[key], (err, client) => {
 			if (err) {
 				if (err.state == '01000' || err.state == '08S01') {
 					this.openConnection(key, thenFn);
 				} else {
-					console.log('\x1b[91m', err.message, '\x1b[0m');
+					console.log('\x1b[91m', err.message, '\n', '\x1b[0m');
 					this.client = null;
 				}
 				return;
 			}
-			console.log('\x1b[92m', 'OK', '\x1b[0m');
+			console.log('\x1b[92m', 'OK\n', '\x1b[0m');
+			
+			this.config.connectionStrings = {};
+			this.config.connectionStrings[key] = this.connectionStrings[key];
+			for (let k in this.connectionStrings) {
+				this.config.connectionStrings[k] = this.connectionStrings[k];
+			}
+			this.writeConfig();
+			
 			this.client = client;
-			if (!this.serverOn) this.startServer();
 			if (thenFn) thenFn.call(this);
 		});
 	}
 	
 	switchConnection(no, thenFn)
 	{
-		var targetKey = no ? Object.keys(this.config.connectionStrings)[no-1] : this.currentKey;
+		var targetKey = no ? Object.keys(this.connectionStrings)[no-1] : this.currentKey;
 		
 		if (targetKey) {
 			if (this.client) {
@@ -111,19 +122,19 @@ class LDBC
 	{
 		this.http
 			.createServer(this.handleRequest.bind(this))
-			.listen(this.httpPort)
+			.listen(this.config.port, this.config.host)
 			.on('error', err => {
 				var exitMsg;
 				switch (err.code) {
-					case 'EADDRINUSE': exitMsg = 'Cannot start DDBC.\r\nAnother process is using port ' + this.httpPort + '.'; break;
+					case 'EADDRINUSE': exitMsg = 'Cannot start LDBC.\r\nAnother process is using port ' + this.config.port + '.'; break;
 					default: exitMsg = err.message; break;
 				}
-				this.dialog.err(exitMsg, 'DDBC Error', e => {
+				this.dialog.err(exitMsg, 'LDBC Error', e => {
 					process.exit(1);
 				}) 
 			});
 
-		console.log('\x1b[36m%s\x1b[0m', " Server running at http://localhost:" + this.httpPort + '\r\n');
+		console.log('\x1b[36m%s\x1b[0m', " LDBC up at http://" + this.config.host + ":" + this.config.port + '\r\n');
 		this.serverOn = true;
 	}
 
@@ -177,11 +188,25 @@ class LDBC
 			var no = parseInt(key);
 			this.switchConnection(no);
 		}
+		if (key == '\u0070') {
+			// p
+		}
+	}
+	
+	writeConfig(thenFn)
+	{
+		var out = "module.exports = " + JSON.stringify(this.config,null,'\t') + ";";
+		this.fs.writeFile(this.pathToConfig, out, error => {
+			if (error) this.dialog.err(error, 'LDBC Error', e => {
+				process.exit(1);
+			})
+			else if (thenFn) thenFn();
+		});
 	}
 	
 	exit()
 	{
-		console.log("\nGoodbye!");
+		console.log(" Goodbye!");
 		process.exit(0);
 	}
 }
