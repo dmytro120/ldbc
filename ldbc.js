@@ -99,6 +99,15 @@ class LDBC
 		var targetKey = no ? Object.keys(this.connectionStrings)[no-1] : this.currentKey;
 		
 		if (targetKey) {
+			if (targetKey != this.currentKey) {
+				this.config.connectionStrings = {};
+				this.config.connectionStrings[targetKey] = this.connectionStrings[targetKey];
+				for (let k in this.connectionStrings) {
+					this.config.connectionStrings[k] = this.connectionStrings[k];
+				}
+				this.writeConfig();
+			}
+			
 			if (this.client) {
 				this.client.close(e => {
 					this.currentKey = targetKey;
@@ -107,15 +116,6 @@ class LDBC
 			} else {
 				this.currentKey = targetKey;
 				this.openConnection(null, thenFn);
-			}
-		
-			if (targetKey != this.currentKey) {
-				this.config.connectionStrings = {};
-				this.config.connectionStrings[targetKey] = this.connectionStrings[targetKey];
-				for (let k in this.connectionStrings) {
-					this.config.connectionStrings[k] = this.connectionStrings[k];
-				}
-				this.writeConfig();
 			}
 		}
 	}
@@ -200,7 +200,7 @@ class LDBC
 		var out = "module.exports = " + JSON.stringify(this.config, null, '\t') + ";";
 		this.fs.writeFile(this.pathToConfig, out, error => {
 			if (error) this.dialog.err(error, 'LDBC Error', e => {
-				process.exit(1);
+				//process.exit(1);
 			})
 			else if (thenFn) thenFn();
 		});
