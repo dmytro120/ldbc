@@ -160,7 +160,7 @@ class LDBC
 		}
 		
 		try {
-			var rows = this.client.querySync(qry);
+			var result = this.client.queryResultSync(qry);
 		}
 		catch (err) {
 			if (err.state && (err.state == '01000' || err.state == '08S01')) {
@@ -174,9 +174,17 @@ class LDBC
 			}
 			return;
 		}
-		response.writeHead(200, {"Content-Type": "application/json"});
-		response.write(JSON.stringify(rows));
 		
+		var output = {};
+		output.rows = result.fetchAllSync();
+		output.info = {
+			numRows: result.getRowCountSync(),
+			colHeadings: result.getColumnNamesSync()
+		};
+		result.closeSync();
+		
+		response.writeHead(200, {"Content-Type": "application/json"});
+		response.write(JSON.stringify(output));
 		response.end();
 	}
 	
