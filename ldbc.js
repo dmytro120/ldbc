@@ -159,6 +159,67 @@ class LDBC
 			return;
 		}
 		
+		if (urlparts.length == 3) {
+			switch(qry) {
+				case 'tables':
+					var schemaName = this.client.conn.getInfo(this.client.SQL_USER_NAME);
+					this.client.tables(null, null, null, 'TABLE', (err, tables) => {
+						if (err) {
+							response.writeHead(400, {"Content-Type": "text/plain"});
+							response.write(err.message);
+							response.end();
+							return;
+						}
+						response.writeHead(200, {"Content-Type": "application/json"});
+						
+						var outTables = [];
+						tables.forEach(tableInfo => {
+							if (tableInfo.table_schem.toUpperCase() == schemaName.toUpperCase()) outTables.push(tableInfo);
+						});
+						
+						response.write(JSON.stringify(outTables));
+						response.end();
+					});
+				break;
+				
+				case 'structure':
+					var schemaName = this.client.conn.getInfo(this.client.SQL_USER_NAME);
+					this.client.tables(null, null, null, 'TABLE', (err, tableInfos) => {
+						if (err) return this.errorOut(err, response);
+						
+						var structure = {};
+						var oracleFound = false;
+						var msFound = false;
+						tableInfos.forEach(tableInfo => {
+							if (tableInfo.table_schem == schemaName) {
+								msFound = true;
+								structure[tableInfo.table_name] = [];
+								return;
+							}
+							if (tableInfo.table_schem.toUpperCase() == schemaName.toUpperCase()) {
+								oracleFound = true;
+								structure[tableInfo.table_name] = [];
+							}
+						});
+						
+						this.client.columns(null, oracleFound ? schemaName.toUpperCase() : schemaName, null, null, (err, columnInfos) => {
+							if (err) return this.errorOut(err, response);
+							
+							columnInfos.forEach(columnInfo => {
+								if (!(columnInfo.table_name in structure)) return;
+								structure[columnInfo.table_name].push(columnInfo);
+							});
+							
+							response.writeHead(200, {"Content-Type": "application/json"});
+							response.write(JSON.stringify(structure));
+							response.end();
+						});
+					});
+				break;
+			}
+			return;
+		}
+		
 		try {
 			var result = this.client.queryResultSync(qry);
 		}
@@ -186,6 +247,14 @@ class LDBC
 		response.writeHead(200, {"Content-Type": "application/json"});
 		response.write(JSON.stringify(output));
 		response.end();
+	}
+	
+	errorOut(err, response)
+	{
+		response.writeHead(400, {"Content-Type": "text/plain"});
+		response.write(err.message);
+		response.end();
+		return;
 	}
 	
 	processKey(key)
