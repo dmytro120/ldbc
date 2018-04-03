@@ -159,62 +159,61 @@ class LDBC
 			return;
 		}
 		
-		if (urlparts.length == 3) {
-			switch(qry) {
-				case 'tables':
+		if (urlparts.length >= 3) {
+			var command = urlparts[1];
+			var param = urlparts[2];
+			
+			switch(command) {
+				case 'structure':
+					var targetTable = null;
+					var targetColumn = null;
+					if (urlparts.length >= 4 && urlparts[3].length > 0) {
+						targetTable = urlparts[2];
+						targetColumn = urlparts[3];
+					}
+					
 					var schemaName = this.client.conn.getInfo(this.client.SQL_USER_NAME);
-					this.client.tables(null, null, null, 'TABLE', (err, tables) => {
-						if (err) {
-							response.writeHead(400, {"Content-Type": "text/plain"});
-							response.write(err.message);
-							response.end();
-							return;
-						}
-						response.writeHead(200, {"Content-Type": "application/json"});
-						
-						var outTables = [];
-						tables.forEach(tableInfo => {
-							if (tableInfo.table_schem.toUpperCase() == schemaName.toUpperCase()) outTables.push(tableInfo);
+					var isMS = false;
+					var isOracle = false;
+					var structure = {};
+					
+					this.client.tables(null, schemaName, null, 'TABLE', (err, msTableInfos) => {
+						if (err) return this.errorOut(err, response);
+						this.client.tables(null, schemaName.toUpperCase(), targetTable, 'TABLE', (err, oracleTableInfos) => {
+							if (err) return this.errorOut(err, response);
+							
+							if (Object.keys(msTableInfos).length > 0) {
+								isMS = true;
+							} else if (Object.keys(oracleTableInfos).length > 0) {
+								isOracle = true;
+							}
+							
+							this.client.columns(null, isMS ? schemaName : schemaName.toUpperCase(), targetTable, targetColumn, (err, columnInfos) => {
+								if (err) return this.errorOut(err, response);
+								
+								columnInfos.forEach(columnInfo => {
+									var colTable = columnInfo.table_name;
+									if (!(colTable in structure)) structure[colTable] = [];
+									if (param == 'A' || targetColumn != null) {
+										delete columnInfo.table_cat;
+										delete columnInfo.table_schem;
+										delete columnInfo.table_name;
+										structure[colTable].push(columnInfo);
+									} else {
+										structure[colTable].push(columnInfo.column_name);
+									}
+								});
+								
+								response.writeHead(200, {"Content-Type": "application/json"});
+								response.write(JSON.stringify(structure));
+								response.end();
+							});
 						});
-						
-						response.write(JSON.stringify(outTables));
-						response.end();
 					});
 				break;
 				
-				case 'structure':
-					var schemaName = this.client.conn.getInfo(this.client.SQL_USER_NAME);
-					this.client.tables(null, null, null, 'TABLE', (err, tableInfos) => {
-						if (err) return this.errorOut(err, response);
-						
-						var structure = {};
-						var oracleFound = false;
-						var msFound = false;
-						tableInfos.forEach(tableInfo => {
-							if (tableInfo.table_schem == schemaName) {
-								msFound = true;
-								structure[tableInfo.table_name] = [];
-								return;
-							}
-							if (tableInfo.table_schem.toUpperCase() == schemaName.toUpperCase()) {
-								oracleFound = true;
-								structure[tableInfo.table_name] = [];
-							}
-						});
-						
-						this.client.columns(null, oracleFound ? schemaName.toUpperCase() : schemaName, null, null, (err, columnInfos) => {
-							if (err) return this.errorOut(err, response);
-							
-							columnInfos.forEach(columnInfo => {
-								if (!(columnInfo.table_name in structure)) return;
-								structure[columnInfo.table_name].push(columnInfo);
-							});
-							
-							response.writeHead(200, {"Content-Type": "application/json"});
-							response.write(JSON.stringify(structure));
-							response.end();
-						});
-					});
+				default:
+					return this.errorOut('Non-SQL command "' + command + '" not supported.', response);
 				break;
 			}
 			return;
@@ -252,7 +251,7 @@ class LDBC
 	errorOut(err, response)
 	{
 		response.writeHead(400, {"Content-Type": "text/plain"});
-		response.write(err.message);
+		response.write(typeof err == 'string' ? err : err.message);
 		response.end();
 		return;
 	}
